@@ -313,4 +313,3 @@ Git filters или `working-tree-encoding`. Такие решения требу
 CI и разрешение конфликтов.
 
 Каноническая кодировка и в Git, и в working tree должна быть одна — UTF-8.
-# cp1251-to-utf8

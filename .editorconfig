@@ -1,0 +1,17 @@
+root = true
+
+# Encoding only: do not mix the migration with whitespace or EOL changes.
+[*.{sql,ddl,dml,pks,pkb,pls,plsql,prc,fnc,trg,vw,tps,tpb,tab,con,idx,seq,syn,grt,ctl,spc,bdy,pkg}]
+charset = utf-8
+
+# Git for Windows executes hooks via its POSIX shell. Hooks must use LF.
+[.githooks/*]
+end_of_line = lf
+
+[tools/*.sh]
+end_of_line = lf
+
+# These files are also usable with LF from the archive. Git checks them out
+# with CRLF on Windows according to .gitattributes.
+[tools/*.{ps1,cmd}]
+end_of_line = crlf

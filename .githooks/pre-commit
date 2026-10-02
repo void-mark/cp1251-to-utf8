@@ -1,0 +1,147 @@
+#!/bin/sh
+
+# Cross-platform Git hook for macOS, Linux and Git for Windows.
+# It validates the blobs in the Git index, not merely the working-tree files.
+
+set -u
+
+if command -v python3 >/dev/null 2>&1 && \
+   python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' \
+   >/dev/null 2>&1; then
+    run_python() { python3 "$@"; }
+elif command -v py >/dev/null 2>&1 && \
+     py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' \
+     >/dev/null 2>&1; then
+    run_python() { py -3 "$@"; }
+elif command -v python >/dev/null 2>&1 && \
+     python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' \
+     >/dev/null 2>&1; then
+    run_python() { python "$@"; }
+else
+    echo "UTF-8 check failed: Python 3.9+ was not found." >&2
+    echo "Install Python and make python3, py, or python available in PATH." >&2
+    exit 2
+fi
+
+repository_root=$(git rev-parse --show-toplevel 2>/dev/null)
+
+if [ -z "$repository_root" ]; then
+    echo "UTF-8 check failed: cannot locate the Git repository root." >&2
+    exit 2
+fi
+
+cd "$repository_root" || exit 2
+
+run_python - <<'PYTHON'
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+for stream in (sys.stdout, sys.stderr):
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(errors="backslashreplace")
+
+try:
+    from cp1251_to_utf8 import (
+        DEFAULT_INCLUDE_PATTERNS,
+        glob_matches,
+        looks_binary,
+    )
+except (ImportError, ModuleNotFoundError) as exc:
+    print(
+        f"UTF-8 check failed: cannot import cp1251_to_utf8.py: {exc}",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+
+def git_output(*arguments: str) -> bytes:
+    result = subprocess.run(
+        ["git", *arguments],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        details = result.stderr.decode("utf-8", errors="replace").strip()
+        print(
+            f"UTF-8 check failed while running Git: {details or 'unknown error'}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return result.stdout
+
+
+changed_paths = git_output(
+    "diff",
+    "--cached",
+    "--name-only",
+    "--diff-filter=ACMR",
+    "-z",
+).split(b"\0")
+
+invalid_files: list[tuple[str, str]] = []
+
+for raw_path in changed_paths:
+    if not raw_path:
+        continue
+
+    relative_path_string = os.fsdecode(raw_path)
+    relative_path = Path(relative_path_string)
+    if not any(
+        glob_matches(relative_path, pattern)
+        for pattern in DEFAULT_INCLUDE_PATTERNS
+    ):
+        continue
+
+    result = subprocess.run(
+        ["git", "cat-file", "blob", f":{relative_path_string}"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        details = result.stderr.decode("utf-8", errors="replace").strip()
+        invalid_files.append(
+            (relative_path_string, f"cannot read the staged blob: {details}")
+        )
+        continue
+
+    content = result.stdout
+    if looks_binary(content):
+        invalid_files.append(
+            (relative_path_string, "a source file looks like binary data")
+        )
+        continue
+
+    try:
+        content.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        invalid_files.append(
+            (relative_path_string, f"invalid UTF-8 near byte {exc.start}")
+        )
+
+if not invalid_files:
+    sys.exit(0)
+
+print(file=sys.stderr)
+print("Commit rejected: staged Oracle files must use UTF-8.", file=sys.stderr)
+print(file=sys.stderr)
+for path, reason in invalid_files:
+    print(f"  {path}: {reason}", file=sys.stderr)
+print(file=sys.stderr)
+print("Save these files as UTF-8 and stage them again with git add.", file=sys.stderr)
+print("Preview the complete repository:", file=sys.stderr)
+print("  python3 cp1251_to_utf8.py .", file=sys.stderr)
+print("Convert Windows-1251 files:", file=sys.stderr)
+print("  python3 cp1251_to_utf8.py --apply .", file=sys.stderr)
+print(file=sys.stderr)
+
+sys.exit(1)
+PYTHON
+
+exit $?

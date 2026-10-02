@@ -1,0 +1,13 @@
+# Git for Windows runs hooks through sh.exe, so a CRLF shebang would break them.
+/.githooks/* text eol=lf
+/tools/*.sh text eol=lf
+
+# Native Windows launchers.
+/tools/*.ps1 text eol=crlf
+/tools/*.cmd text eol=crlf
+
+# Keep the cross-platform Python utility stable on every checkout.
+/cp1251_to_utf8.py text eol=lf
+
+# This file intentionally does not normalize Oracle source EOLs. Encoding and
+# line-ending migrations should remain separate changes.
